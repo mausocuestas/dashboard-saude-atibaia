@@ -1,0 +1,103 @@
+---
+// Parte 1: Servidor (Nada muda aqui)
+const { produto } = Astro.props;
+const chartId = `chart-${Math.random().toString(36).substring(2, 9)}`;
+const supabaseUrl = import.meta.env.SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.SUPABASE_ANON_KEY;
+---
+
+<!-- 
+  Parte 2: HTML 
+  Crucial para o ECharts: o container PRECISA ter uma altura definida, 
+  senão o gráfico não aparece. Fazemos isso com o 'style'.
+-->
+<div id={chartId} class="chart-container" style="width: 100%; height: 450px;">
+  <p>Carregando dados do estoque...</p>
+</div>
+
+<!-- 
+  Parte 3: JavaScript
+  A lógica é a mesma, mas a "receita" do gráfico é totalmente diferente.
+-->
+<script define:vars={{ supabaseUrl, supabaseAnonKey, produto, chartId }}>
+  // Importamos o ECharts e o Supabase
+  import * as echarts from 'echarts';
+  import { createClient } from '@supabase/supabase-js';
+
+  async function carregarDadosDoGrafico() {
+    const chartElement = document.querySelector(`#${chartId}`);
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      chartElement.innerHTML = `<p style="color: red;">Erro Crítico: Credenciais do Supabase não configuradas.</p>`;
+      return;
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    const { data, error } = await supabase
+      .from('view_disponibilidades_recente_order')
+      .select('farmacia, estoque')
+      .eq('produto', produto)
+      .order('estoque', { ascending: false });
+
+    if (error) {
+      chartElement.innerHTML = `<p style="color: red;">Falha ao conectar: ${error.message}</p>`;
+      return;
+    }
+
+    if (!data || data.length === 0) {
+      chartElement.innerHTML = `<p>Nenhum dado encontrado para: "${produto}"</p>`;
+      return;
+    }
+
+    // A preparação dos dados é a mesma
+    const farmacias = data.map(item => item.farmacia);
+    const estoques = data.map(item => item.estoque);
+
+    // =========================================================================
+    //                        A "RECEITA" DO ECHARTS
+    // =========================================================================
+    // 1. Inicializamos o gráfico no nosso container
+    const myChart = echarts.init(chartElement);
+
+    // 2. Montamos o objeto de 'option' com a configuração
+    const option = {
+      title: {
+        text: `Estoque de ${produto}`,
+        left: 'center'
+      },
+      tooltip: { // A caixinha que aparece ao passar o mouse
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' }
+      },
+      grid: { // Adiciona margens para não cortar os nomes
+        left: '3%',
+        right: '4%',
+        bottom: '3%',
+        containLabel: true
+      },
+      xAxis: {
+        type: 'category',
+        data: farmacias, // Os nomes das farmácias vão no eixo X
+        axisLabel: { interval: 0, rotate: 30 } // Rotaciona os nomes para caberem
+      },
+      yAxis: {
+        type: 'value'
+      },
+      series: [{ // Os dados do gráfico
+        name: 'Estoque',
+        type: 'bar',
+        data: estoques,
+        label: { // Para mostrar os números em cima das barras
+          show: true,
+          position: 'top'
+        }
+      }]
+    };
+
+    // 3. Aplicamos a configuração ao nosso gráfico
+    myChart.setOption(option);
+  }
+
+  carregarDadosDoGrafico();
+</script>

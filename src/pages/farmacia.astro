@@ -1,0 +1,15 @@
+---
+import GraficoEstoqueProduto from '../components/GraficoEstoqueProduto.astro';
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout title="Dashboard da Farmácia">
+  <main>
+    <h1>Dashboard da Farmácia</h1>
+    <p>Dados de estoque utilizando Astro, Supabase e Apache ECharts.</p>
+    
+    <hr>
+
+    <GraficoEstoqueProduto produto="Aciclovir 200 mg" />
+  </main>
+</Layout>
