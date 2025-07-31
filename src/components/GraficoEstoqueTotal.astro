@@ -1,4 +1,4 @@
----
+<!-- ---
 // Não precisamos de 'props' aqui, pois o gráfico não é filtrado.
 const chartId = `chart-${Math.random().toString(36).substring(2, 9)}`;
 const supabaseUrl = import.meta.env.SUPABASE_URL;
@@ -62,4 +62,304 @@ const supabaseAnonKey = import.meta.env.SUPABASE_ANON_KEY;
   }
 
   carregarDadosDoGrafico();
+</script> -->
+
+
+---
+// src/components/GraficoEstoqueTotal.astro
+import { createClient } from '@supabase/supabase-js';
+
+// Configuração do cliente Supabase
+const supabaseUrl = import.meta.env.SUPABASE_URL;
+const supabaseKey = import.meta.env.SUPABASE_ANON_KEY;
+
+let dadosGrafico = [];
+let erro = null;
+let carregando = true;
+
+try {
+  // Verificar se as variáveis de ambiente estão configuradas
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error('Variáveis de ambiente do Supabase não configuradas');
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  // Buscar todos os dados da tabela disponibilidades
+  const { data, error } = await supabase
+    .from('disponibilidades')
+    .select('farmacia, estoque');
+
+  if (error) {
+    throw new Error(`Erro ao buscar dados: ${error.message}`);
+  }
+
+  if (!data || data.length === 0) {
+    throw new Error('Nenhum dado encontrado na tabela disponibilidades');
+  }
+
+  // Agregar dados por farmácia (somar estoque total por farmácia)
+  const estoqueAgregado = data.reduce((acc, item) => {
+    const farmacia = item.farmacia || 'Sem nome';
+    const estoque = parseFloat(item.estoque) || 0;
+    
+    if (acc[farmacia]) {
+      acc[farmacia] += estoque;
+    } else {
+      acc[farmacia] = estoque;
+    }
+    
+    return acc;
+  }, {});
+
+  // Converter para formato adequado para ECharts
+  dadosGrafico = Object.entries(estoqueAgregado).map(([farmacia, estoque]) => ({
+    farmacia,
+    estoque: Math.round(estoque * 100) / 100 // Arredondar para 2 casas decimais
+  }));
+
+  // Ordenar por estoque (maior para menor)
+  dadosGrafico.sort((a, b) => b.estoque - a.estoque);
+
+  carregando = false;
+
+} catch (e) {
+  erro = e.message;
+  carregando = false;
+  console.error('Erro no componente GraficoEstoqueTotal:', e);
+}
+
+// Preparar dados para ECharts
+const farmacias = dadosGrafico.map(item => item.farmacia);
+const estoques = dadosGrafico.map(item => item.estoque);
+---
+
+<div class="grafico-container">
+  <h2>Diagnóstico: Estoque Total por Farmácia</h2>
+  
+  {carregando && (
+    <div class="status-message loading">
+      <p>🔄 Carregando dados da tabela disponibilidades...</p>
+    </div>
+  )}
+
+  {erro && (
+    <div class="status-message error">
+      <h3>❌ Erro detectado:</h3>
+      <p>{erro}</p>
+      <details>
+        <summary>Informações de debug</summary>
+        <ul>
+          <li>Supabase URL configurada: {supabaseUrl ? '✅ Sim' : '❌ Não'}</li>
+          <li>Supabase Key configurada: {supabaseKey ? '✅ Sim' : '❌ Não'}</li>
+          <li>Timestamp: {new Date().toISOString()}</li>
+        </ul>
+      </details>
+    </div>
+  )}
+
+  {!carregando && !erro && dadosGrafico.length > 0 && (
+    <div class="success-info">
+      <div class="stats">
+        <p>✅ <strong>{dadosGrafico.length}</strong> farmácias encontradas</p>
+        <p>📊 <strong>{estoques.reduce((a, b) => a + b, 0).toLocaleString('pt-BR')}</strong> total de estoque</p>
+      </div>
+      <div id="grafico-diagnostico" style="width: 100%; height: 500px;"></div>
+    </div>
+  )}
+
+  {!carregando && !erro && dadosGrafico.length === 0 && (
+    <div class="status-message warning">
+      <p>⚠️ Conexão bem-sucedida, mas nenhum dado foi encontrado na tabela.</p>
+    </div>
+  )}
+</div>
+
+<script>
+  // Importar ECharts via CDN
+  import('https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js').then(() => {
+    const chartDom = document.getElementById('grafico-diagnostico');
+    if (!chartDom) return;
+
+    const myChart = echarts.init(chartDom);
+    
+    const option = {
+      title: {
+        text: 'Estoque Total por Farmácia',
+        subtext: 'Dados agregados da tabela disponibilidades',
+        left: 'center'
+      },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: {
+          type: 'shadow'
+        },
+        formatter: function(params) {
+          const data = params[0];
+          return `<strong>${data.name}</strong><br/>
+                  Estoque Total: <strong>${data.value.toLocaleString('pt-BR')}</strong>`;
+        }
+      },
+      xAxis: {
+        type: 'category',
+        data: window.dadosGrafico?.map(item => item.farmacia) || [],
+        axisLabel: {
+          rotate: 45,
+          interval: 0
+        }
+      },
+      yAxis: {
+        type: 'value',
+        name: 'Estoque',
+        axisLabel: {
+          formatter: function(value) {
+            return value.toLocaleString('pt-BR');
+          }
+        }
+      },
+      series: [{
+        name: 'Estoque Total',
+        type: 'bar',
+        data: window.dadosGrafico?.map(item => item.estoque) || [],
+        itemStyle: {
+          color: function(params) {
+            // Gradiente de cores baseado no valor
+            const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#feca57', '#ff9ff3'];
+            return colors[params.dataIndex % colors.length];
+          }
+        },
+        label: {
+          show: true,
+          position: 'top',
+          formatter: function(params) {
+            return params.value.toLocaleString('pt-BR');
+          }
+        }
+      }],
+      grid: {
+        left: '3%',
+        right: '4%',
+        bottom: '15%',
+        containLabel: true
+      }
+    };
+
+    myChart.setOption(option);
+    
+    // Responsividade
+    window.addEventListener('resize', function() {
+      myChart.resize();
+    });
+  }).catch(error => {
+    console.error('Erro ao carregar ECharts:', error);
+    document.getElementById('grafico-diagnostico').innerHTML = 
+      '<p style="color: red;">❌ Erro ao carregar a biblioteca ECharts</p>';
+  });
+
+  // Disponibilizar dados globalmente para o script
+  if (typeof window !== 'undefined') {
+    window.dadosGrafico = JSON.parse('${JSON.stringify(dadosGrafico)}');
+  }
 </script>
+
+<style>
+.grafico-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.grafico-container h2 {
+  color: #2c3e50;
+  text-align: center;
+  margin-bottom: 30px;
+  font-size: 1.8rem;
+}
+
+.status-message {
+  padding: 20px;
+  border-radius: 8px;
+  margin: 20px 0;
+  border-left: 4px solid;
+}
+
+.status-message.loading {
+  background-color: #e3f2fd;
+  border-color: #2196f3;
+  color: #1565c0;
+}
+
+.status-message.error {
+  background-color: #ffebee;
+  border-color: #f44336;
+  color: #c62828;
+}
+
+.status-message.warning {
+  background-color: #fff3e0;
+  border-color: #ff9800;
+  color: #ef6c00;
+}
+
+.success-info {
+  margin-top: 20px;
+}
+
+.stats {
+  display: flex;
+  gap: 30px;
+  justify-content: center;
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f5f5f5;
+  border-radius: 8px;
+}
+
+.stats p {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #2c3e50;
+}
+
+details {
+  margin-top: 15px;
+}
+
+details summary {
+  cursor: pointer;
+  font-weight: bold;
+  padding: 5px 0;
+}
+
+details ul {
+  margin-top: 10px;
+  padding-left: 20px;
+}
+
+details li {
+  margin: 5px 0;
+}
+
+#grafico-diagnostico {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+@media (max-width: 768px) {
+  .stats {
+    flex-direction: column;
+    gap: 10px;
+    text-align: center;
+  }
+  
+  .grafico-container {
+    padding: 10px;
+  }
+  
+  #grafico-diagnostico {
+    height: 400px !important;
+  }
+}
+</style>
