@@ -1,0 +1,65 @@
+---
+// Não precisamos de 'props' aqui, pois o gráfico não é filtrado.
+const chartId = `chart-${Math.random().toString(36).substring(2, 9)}`;
+const supabaseUrl = import.meta.env.SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.SUPABASE_ANON_KEY;
+---
+<div id={chartId} class="chart-container" style="width: 100%; height: 450px;">
+  <p>Carregando dados de estoque total...</p>
+</div>
+
+<script define:vars={{ supabaseUrl, supabaseAnonKey, chartId }}>
+  import * as echarts from 'echarts';
+  import { createClient } from '@supabase/supabase-js';
+
+  async function carregarDadosDoGrafico() {
+    const chartElement = document.querySelector(`#${chartId}`);
+    if (!supabaseUrl || !supabaseAnonKey) { /* ... tratamento de erro ... */ return; }
+
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+    // =========================================================================
+    //                        A NOVA QUERY DIRETA NA TABELA
+    // =========================================================================
+    const { data, error } = await supabase
+      .from('disponibilidades') // Usando a tabela diretamente!
+      .select('farmacia, estoque');
+
+    if (error) {
+      chartElement.innerHTML = `<p style="color: red;">Falha ao ler a tabela: ${error.message}</p>`;
+      return;
+    }
+    if (!data || data.length === 0) { /* ... tratamento de erro ... */ return; }
+
+    // =========================================================================
+    //                  AGREGANDO OS DADOS COM JAVASCRIPT
+    // =========================================================================
+    // Como a tabela tem várias linhas para a mesma farmácia, precisamos somar.
+    const estoquePorFarmacia = data.reduce((acc, item) => {
+      // Se a farmácia ainda não está no nosso acumulador, inicializa com 0.
+      if (!acc[item.farmacia]) {
+        acc[item.farmacia] = 0;
+      }
+      // Soma o estoque do item atual ao total daquela farmácia.
+      acc[item.farmacia] += item.estoque;
+      return acc;
+    }, {}); // O objeto inicial é vazio.
+
+    // Agora separamos os nomes das farmácias e os totais somados.
+    const farmacias = Object.keys(estoquePorFarmacia);
+    const estoques = Object.values(estoquePorFarmacia);
+    
+    // O resto é a receita do ECharts, como antes.
+    const myChart = echarts.init(chartElement);
+    const option = {
+      title: { text: 'Estoque Total por Farmácia', left: 'center' },
+      tooltip: { trigger: 'axis' },
+      xAxis: { type: 'category', data: farmacias, axisLabel: { interval: 0, rotate: 30 } },
+      yAxis: { type: 'value' },
+      series: [{ name: 'Estoque Total', type: 'bar', data: estoques, label: { show: true, position: 'top' } }]
+    };
+    myChart.setOption(option);
+  }
+
+  carregarDadosDoGrafico();
+</script>
